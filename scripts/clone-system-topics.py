@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Clone system topics from CSS Atlas V3 to the Swag Agent.
+"""DO NOT USE. Clone system topics from CSS Atlas V3 to the Swag Agent.
+
+WARNING - THIS SCRIPT IS WRONG. Keeping it as a cautionary reference.
+
+Per Microsoft docs: "System topics are automatically generated and shouldn't be
+manually cloned. Manual cloning can corrupt the bot component hierarchy. Portal
+UI fails to render components due to schema conflicts."
+
+The correct path is to create the bot via the Copilot Studio portal (which
+auto-generates system topics), then hydrate it with custom content using
+hydrate-agent.py.
+
+Original docstring below for reference.
+
 
 Every Copilot Studio bot needs built-in topics (Greeting, Fallback, OnError, etc.)
 for the validator to pass. The UI doesn't provide an API to generate these, so we
