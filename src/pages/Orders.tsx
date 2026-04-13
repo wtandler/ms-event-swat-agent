@@ -26,8 +26,12 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
-import { MOCK_EVENTS, MOCK_ALLOCATIONS } from "@/utils/mockData";
-import type { SwagEvent, Allocation, EventStatus } from "@/types";
+import {
+  useEvents,
+  useAllocations,
+  useUpdateEventStatus,
+} from "@/hooks/useDataverse";
+import type { SwagEvent, EventStatus } from "@/types";
 
 const useStyles = makeStyles({
   page: {
@@ -146,7 +150,10 @@ export const Orders: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailEvent, setDetailEvent] = useState<SwagEvent | null>(null);
-  const [events, setEvents] = useState<SwagEvent[]>(MOCK_EVENTS);
+
+  const { data: events } = useEvents();
+  const { data: detailAllocations } = useAllocations(detailEvent?.id);
+  const { mutate: updateStatus, loading: updating } = useUpdateEventStatus();
 
   // Filter by URL param if navigated from Budget Dashboard
   const eventIdParam = searchParams.get("event");
@@ -159,12 +166,8 @@ export const Orders: React.FC = () => {
     if (statusFilter !== "all") {
       result = result.filter((e) => e.status === statusFilter);
     }
-    return result.sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+    return result.slice().sort((a, b) => b.eventDate.localeCompare(a.eventDate));
   }, [events, statusFilter, eventIdParam]);
-
-  const detailAllocations: Allocation[] = detailEvent
-    ? MOCK_ALLOCATIONS.filter((a) => a.eventId === detailEvent.id)
-    : [];
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -184,7 +187,7 @@ export const Orders: React.FC = () => {
     }
   };
 
-  const handleMarkOrdered = () => {
+  const handleMarkOrdered = async () => {
     // State machine guard: only confirmed events can be marked as ordered
     const validIds = [...selected].filter((id) => {
       const evt = events.find((e) => e.id === id);
@@ -192,19 +195,25 @@ export const Orders: React.FC = () => {
     });
     if (validIds.length === 0) return;
 
-    setEvents((prev) =>
-      prev.map((e) =>
-        validIds.includes(e.id) ? { ...e, status: "ordered" as EventStatus } : e
-      )
-    );
-    setSelected(new Set());
-    dispatchToast(
-      <Toast>
-        <ToastTitle>Marked as ordered</ToastTitle>
-        <ToastBody>{validIds.length} allocation(s) updated.</ToastBody>
-      </Toast>,
-      { intent: "success" }
-    );
+    try {
+      await updateStatus(validIds, "ordered" as EventStatus);
+      setSelected(new Set());
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Marked as ordered</ToastTitle>
+          <ToastBody>{validIds.length} allocation(s) updated.</ToastBody>
+        </Toast>,
+        { intent: "success" }
+      );
+    } catch {
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Failed to update status</ToastTitle>
+          <ToastBody>Try again, or contact support.</ToastBody>
+        </Toast>,
+        { intent: "error" }
+      );
+    }
   };
 
   const confirmedSelected = [...selected].filter((id) => {
@@ -222,10 +231,11 @@ export const Orders: React.FC = () => {
             ? [
                 {
                   key: "mark-ordered",
-                  label: `Mark ${confirmedSelected.length} as Ordered`,
+                  label: updating ? "Updating..." : `Mark ${confirmedSelected.length} as Ordered`,
                   icon: <CheckmarkRegular />,
                   onClick: handleMarkOrdered,
                   primary: true,
+                  disabled: updating,
                 },
               ]
             : undefined

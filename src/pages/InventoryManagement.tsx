@@ -19,8 +19,8 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { StockIndicator } from "@/components/StockIndicator";
-import { MOCK_SWAG_ITEMS } from "@/utils/mockData";
-import type { SwagItem } from "@/types";
+import { AddSwagItemDialog } from "@/components/AddSwagItemDialog";
+import { useSwagItems, useUpdateSwagItemQuantity } from "@/hooks/useDataverse";
 
 const useStyles = makeStyles({
   page: {
@@ -71,17 +71,32 @@ export const InventoryManagement: React.FC = () => {
   const toasterId = useId("toaster");
   const { dispatchToast } = useToastController(toasterId);
 
-  const [items, setItems] = useState<SwagItem[]>(MOCK_SWAG_ITEMS);
+  const { data: items } = useSwagItems();
+  const { mutate: updateQuantities, loading: saving } = useUpdateSwagItemQuantity();
+
+  // Local staged edits (itemId -> new quantityTotal)
   const [edits, setEdits] = useState<Record<string, number>>({});
+  const [addItemOpen, setAddItemOpen] = useState(false);
 
   const hasEdits = Object.keys(edits).length > 0;
 
+  // Build the displayed items: apply staged edits over the persisted items
+  const displayItems = items.map((item) => {
+    if (edits[item.id] !== undefined) {
+      return {
+        ...item,
+        quantityTotal: edits[item.id],
+        quantityAvailable: edits[item.id] - item.quantityReserved,
+      };
+    }
+    return item;
+  });
+
   const handleEdit = useCallback((itemId: string, newTotal: number) => {
-    const original = MOCK_SWAG_ITEMS.find((i) => i.id === itemId);
+    const original = items.find((i) => i.id === itemId);
     if (!original) return;
 
     if (newTotal === original.quantityTotal) {
-      // Reverted to original, remove from edits
       setEdits((prev) => {
         const next = { ...prev };
         delete next[itemId];
@@ -90,34 +105,33 @@ export const InventoryManagement: React.FC = () => {
     } else {
       setEdits((prev) => ({ ...prev, [itemId]: newTotal }));
     }
+  }, [items]);
 
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              quantityTotal: newTotal,
-              quantityAvailable: newTotal - item.quantityReserved,
-            }
-          : item
-      )
-    );
-  }, []);
-
-  const handleSave = () => {
-    // In production: batch update Dataverse SwagItems
-    setEdits({});
-    dispatchToast(
-      <Toast>
-        <ToastTitle>Inventory updated</ToastTitle>
-        <ToastBody>{Object.keys(edits).length} item(s) saved.</ToastBody>
-      </Toast>,
-      { intent: "success" }
-    );
+  const handleSave = async () => {
+    const updates = Object.entries(edits).map(([id, quantityTotal]) => ({ id, quantityTotal }));
+    try {
+      await updateQuantities(updates);
+      const count = Object.keys(edits).length;
+      setEdits({});
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Inventory updated</ToastTitle>
+          <ToastBody>{count} item(s) saved.</ToastBody>
+        </Toast>,
+        { intent: "success" }
+      );
+    } catch {
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Failed to update inventory</ToastTitle>
+          <ToastBody>Try again, or contact support.</ToastBody>
+        </Toast>,
+        { intent: "error" }
+      );
+    }
   };
 
   const handleDiscard = () => {
-    setItems(MOCK_SWAG_ITEMS);
     setEdits({});
   };
 
@@ -134,13 +148,15 @@ export const InventoryManagement: React.FC = () => {
                   label: "Discard",
                   icon: <DismissRegular />,
                   onClick: handleDiscard,
+                  disabled: saving,
                 },
                 {
                   key: "save",
-                  label: "Save Changes",
+                  label: saving ? "Saving..." : "Save Changes",
                   icon: <SaveRegular />,
                   onClick: handleSave,
                   primary: true,
+                  disabled: saving,
                 },
               ]
             : [
@@ -148,17 +164,17 @@ export const InventoryManagement: React.FC = () => {
                   key: "add",
                   label: "Add Item",
                   icon: <AddRegular />,
-                  onClick: () => {/* TODO: open add dialog */},
+                  onClick: () => setAddItemOpen(true),
                 },
               ]
         }
       />
       <div className={styles.body}>
-        {items.length === 0 ? (
+        {displayItems.length === 0 ? (
           <EmptyState
             message="No swag items configured. Add your first item."
             actionLabel="Add Item"
-            onAction={() => {/* TODO */}}
+            onAction={() => setAddItemOpen(true)}
           />
         ) : (
           <table className={styles.table}>
@@ -174,7 +190,7 @@ export const InventoryManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
+              {displayItems.map((item) => {
                 const isEdited = item.id in edits;
                 return (
                   <tr key={item.id}>
@@ -210,6 +226,7 @@ export const InventoryManagement: React.FC = () => {
           </table>
         )}
       </div>
+      <AddSwagItemDialog open={addItemOpen} onOpenChange={setAddItemOpen} />
     </div>
   );
 };

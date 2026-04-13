@@ -24,7 +24,11 @@ import {
 } from "@fluentui/react-icons";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
-import { MOCK_SWAG_ITEMS, MOCK_ALLOCATION_RULES } from "@/utils/mockData";
+import {
+  useSwagItems,
+  useAllocationRules,
+  useUpsertAllocationRule,
+} from "@/hooks/useDataverse";
 import type { PackItem, AllocationRuleSchema, SwagItem } from "@/types";
 
 const useStyles = makeStyles({
@@ -113,6 +117,10 @@ export const RulesEditor: React.FC = () => {
   const toasterId = useId("toaster");
   const { dispatchToast } = useToastController(toasterId);
 
+  const { data: allItems } = useSwagItems();
+  const { data: allRules } = useAllocationRules();
+  const { mutate: upsertRule, loading: saving } = useUpsertAllocationRule();
+
   const [selectedTier, setSelectedTier] = useState<TierName>("Exec");
   const [eventType, setEventType] = useState<EventType>("in-person");
   const [packItems, setPackItems] = useState<PackItem[]>([]);
@@ -121,7 +129,7 @@ export const RulesEditor: React.FC = () => {
 
   // Load existing rule for selected tier + event type
   React.useEffect(() => {
-    const existing = MOCK_ALLOCATION_RULES.find(
+    const existing = allRules.find(
       (r) => r.tierName === selectedTier && r.eventType === eventType
     );
     if (existing) {
@@ -134,13 +142,13 @@ export const RulesEditor: React.FC = () => {
     } else {
       setPackItems([]);
     }
-  }, [selectedTier, eventType]);
+  }, [selectedTier, eventType, allRules]);
 
   const availableItems = useMemo(() =>
-    MOCK_SWAG_ITEMS.filter((item) =>
+    allItems.filter((item) =>
       item.tierEligibility.includes(selectedTier)
     ),
-    [selectedTier]
+    [selectedTier, allItems]
   );
 
   const selectedItem: SwagItem | undefined = availableItems.find((i) => i.id === addItemId);
@@ -179,18 +187,31 @@ export const RulesEditor: React.FC = () => {
   const totalItems = packItems.reduce((s, p) => s + p.quantity, 0);
   const totalCost = packItems.reduce((s, p) => s + p.quantity * p.unitCost, 0);
 
-  const handleSave = () => {
-    // In production: write to Dataverse AllocationRules table
-    // const rule: AllocationRuleSchema = { tierName: selectedTier, eventType, packItems, totalPackCost: totalCost };
-    // const json = JSON.stringify(rule);
-    void totalCost; // used in toast below
-    dispatchToast(
-      <Toast>
-        <ToastTitle>Rule saved</ToastTitle>
-        <ToastBody>{selectedTier} ({eventType}) pack updated.</ToastBody>
-      </Toast>,
-      { intent: "success" }
-    );
+  const handleSave = async () => {
+    const rule: AllocationRuleSchema = {
+      tierName: selectedTier,
+      eventType,
+      packItems,
+      totalPackCost: totalCost,
+    };
+    try {
+      await upsertRule(rule);
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Rule saved</ToastTitle>
+          <ToastBody>{selectedTier} ({eventType}) pack updated.</ToastBody>
+        </Toast>,
+        { intent: "success" }
+      );
+    } catch {
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Failed to save rule</ToastTitle>
+          <ToastBody>Try again, or contact support.</ToastBody>
+        </Toast>,
+        { intent: "error" }
+      );
+    }
   };
 
   return (
@@ -201,11 +222,11 @@ export const RulesEditor: React.FC = () => {
         actions={[
           {
             key: "save",
-            label: "Save Rule",
+            label: saving ? "Saving..." : "Save Rule",
             icon: <SaveRegular />,
             onClick: handleSave,
             primary: true,
-            disabled: packItems.length === 0,
+            disabled: packItems.length === 0 || saving,
           },
         ]}
       />
