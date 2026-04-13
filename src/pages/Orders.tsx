@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   makeStyles,
   tokens,
@@ -141,6 +141,7 @@ export const Orders: React.FC = () => {
   const toasterId = useId("toaster");
   const { dispatchToast } = useToastController(toasterId);
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -250,7 +251,7 @@ export const Orders: React.FC = () => {
             <Button
               appearance="subtle"
               size="small"
-              onClick={() => window.location.hash = "#/orders"}
+              onClick={() => navigate("/orders")}
             >
               Clear event filter
             </Button>
