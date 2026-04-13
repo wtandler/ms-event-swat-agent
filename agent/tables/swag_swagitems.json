@@ -1,0 +1,16 @@
+{
+  "logicalName": "swag_swagitems",
+  "displayName": "Swag Items",
+  "description": "Inventory master for swag items",
+  "primaryNameAttribute": "swag_name",
+  "ownershipType": "Organization",
+  "columns": [
+    { "logicalName": "swag_name", "displayName": "Item Name", "type": "String", "maxLength": 200, "required": true },
+    { "logicalName": "swag_sizecategory", "displayName": "Size Category", "type": "Choice", "options": ["S", "M", "L"], "required": true },
+    { "logicalName": "swag_unitcost", "displayName": "Unit Cost", "type": "Currency", "precision": 2, "required": true },
+    { "logicalName": "swag_quantitytotal", "displayName": "Qty Total", "type": "Integer", "required": true },
+    { "logicalName": "swag_quantityreserved", "displayName": "Qty Reserved", "type": "Integer", "required": true, "default": 0 },
+    { "logicalName": "swag_quantityavailable", "displayName": "Qty Available", "type": "Integer", "calculated": true, "formula": "swag_quantitytotal - swag_quantityreserved" },
+    { "logicalName": "swag_tiereligibility", "displayName": "Tier Eligibility", "type": "String", "maxLength": 200, "description": "Comma-separated: Exec,Champ,Tier3,Tier4" }
+  ]
+}

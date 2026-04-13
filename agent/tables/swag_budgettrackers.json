@@ -1,0 +1,16 @@
+{
+  "logicalName": "swag_budgettrackers",
+  "displayName": "Budget Tracker",
+  "description": "Multi-row: one row per budget period. Context-loading flow queries where now falls between QuarterStart and QuarterEnd.",
+  "primaryNameAttribute": "swag_programname",
+  "ownershipType": "Organization",
+  "columns": [
+    { "logicalName": "swag_programname", "displayName": "Program Name", "type": "String", "maxLength": 200, "required": true },
+    { "logicalName": "swag_programtotal", "displayName": "Program Total", "type": "Currency", "precision": 2, "required": true },
+    { "logicalName": "swag_totalspent", "displayName": "Total Spent", "type": "Currency", "precision": 2, "required": true, "default": 0 },
+    { "logicalName": "swag_totalreserved", "displayName": "Total Reserved", "type": "Currency", "precision": 2, "required": true, "default": 0 },
+    { "logicalName": "swag_remainingavailable", "displayName": "Remaining Available", "type": "Currency", "precision": 2, "calculated": true, "formula": "swag_programtotal - swag_totalspent - swag_totalreserved" },
+    { "logicalName": "swag_quarterstart", "displayName": "Quarter Start", "type": "DateOnly", "required": true },
+    { "logicalName": "swag_quarterend", "displayName": "Quarter End", "type": "DateOnly", "required": true }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "logicalName": "swag_allocationrules",
+  "displayName": "Allocation Rules",
+  "description": "Configurable allocation rules per attendee tier. Managed via admin Code App's visual rules editor.",
+  "primaryNameAttribute": "swag_tiername",
+  "ownershipType": "Organization",
+  "columns": [
+    { "logicalName": "swag_tiername", "displayName": "Tier Name", "type": "String", "maxLength": 50, "required": true },
+    { "logicalName": "swag_eventtype", "displayName": "Event Type", "type": "Choice", "options": ["in-person", "virtual"], "required": true },
+    {
+      "logicalName": "swag_rulesjson",
+      "displayName": "Rules JSON",
+      "type": "Multiline",
+      "maxLength": 10000,
+      "description": "JSON string conforming to AllocationRuleSchema TypeScript type. Written by the admin Code App, read by the context-loading Power Automate flow. Schema contract: { tierName, eventType, packItems: [{ itemId, itemName, sizeCategory, quantity, unitCost }], totalPackCost }"
+    }
+  ],
+  "uniqueConstraint": {
+    "columns": ["swag_tiername", "swag_eventtype"],
+    "description": "One rule per tier per event type"
+  }
+}

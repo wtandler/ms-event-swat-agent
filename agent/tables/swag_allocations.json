@@ -1,0 +1,30 @@
+{
+  "logicalName": "swag_allocations",
+  "displayName": "Allocations",
+  "description": "Line-item allocations linking events to swag items",
+  "primaryNameAttribute": "swag_itemname",
+  "ownershipType": "Organization",
+  "columns": [
+    { "logicalName": "swag_itemname", "displayName": "Item Name", "type": "String", "maxLength": 200 },
+    { "logicalName": "swag_quantity", "displayName": "Quantity", "type": "Integer", "required": true },
+    { "logicalName": "swag_totalcost", "displayName": "Total Cost", "type": "Currency", "precision": 2 },
+    { "logicalName": "swag_status", "displayName": "Status", "type": "Choice", "options": ["proposed", "confirmed", "ordered", "cancelled"] }
+  ],
+  "relationships": [
+    {
+      "type": "ManyToOne",
+      "relatedTable": "swag_events",
+      "lookupColumn": "swag_eventid",
+      "displayName": "Event",
+      "behavior": "Parental",
+      "note": "Use @odata.bind syntax when creating: swag_eventid@odata.bind: /swag_events(GUID)"
+    },
+    {
+      "type": "ManyToOne",
+      "relatedTable": "swag_swagitems",
+      "lookupColumn": "swag_itemid",
+      "displayName": "Swag Item",
+      "behavior": "Referential"
+    }
+  ]
+}
