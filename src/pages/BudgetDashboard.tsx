@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   makeStyles,
@@ -18,11 +18,14 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
+import { SetupChecklist } from "@/components/SetupChecklist";
+import { CreateBudgetPeriodDialog } from "@/components/CreateBudgetPeriodDialog";
 import {
-  MOCK_BUDGET_PERIODS,
-  MOCK_EVENTS,
-  MOCK_WEEKLY_SPEND,
-} from "@/utils/mockData";
+  useActiveBudget,
+  useEvents,
+  useWeeklySpend,
+  useSetupStatus,
+} from "@/hooks/useDataverse";
 import type { BudgetPeriod, SwagEvent } from "@/types";
 
 const useStyles = makeStyles({
@@ -123,15 +126,14 @@ function budgetColor(budget: BudgetPeriod): string {
 export const BudgetDashboard: React.FC = () => {
   const styles = useStyles();
   const navigate = useNavigate();
-  const [loading] = React.useState(false);
+  const [createBudgetOpen, setCreateBudgetOpen] = useState(false);
+  const { data: activeBudget, loading } = useActiveBudget();
+  const { data: allEvents } = useEvents();
+  const { data: weeklySpend } = useWeeklySpend();
+  const setupStatus = useSetupStatus();
 
-  // In production, fetch from Dataverse. For now, use mock data.
   const now = new Date().toISOString().slice(0, 10);
-  const activeBudget = MOCK_BUDGET_PERIODS.find(
-    (b) => b.quarterStart <= now && b.quarterEnd >= now
-  );
-
-  const upcomingEvents = MOCK_EVENTS
+  const upcomingEvents = allEvents
     .filter((e) => e.eventDate >= now && e.status !== "cancelled")
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
@@ -146,6 +148,18 @@ export const BudgetDashboard: React.FC = () => {
     );
   }
 
+  // Show setup checklist if anything isn't configured yet
+  if (!setupStatus.isComplete) {
+    return (
+      <div className={styles.page}>
+        <PageHeader title="Budget Dashboard" />
+        <div style={{ padding: 24 }}>
+          <SetupChecklist />
+        </div>
+      </div>
+    );
+  }
+
   if (!activeBudget) {
     return (
       <div className={styles.page}>
@@ -153,7 +167,11 @@ export const BudgetDashboard: React.FC = () => {
         <EmptyState
           message="No budget period configured for this quarter. Create one to get started."
           actionLabel="Create Budget Period"
-          onAction={() => {/* TODO: open create dialog */}}
+          onAction={() => setCreateBudgetOpen(true)}
+        />
+        <CreateBudgetPeriodDialog
+          open={createBudgetOpen}
+          onOpenChange={setCreateBudgetOpen}
         />
       </div>
     );
@@ -192,11 +210,11 @@ export const BudgetDashboard: React.FC = () => {
         <div className={styles.section}>
           <Text className={styles.sectionTitle}>Spend Over Time</Text>
           <div className={styles.chartContainer}>
-            {MOCK_WEEKLY_SPEND.length === 0 ? (
+            {weeklySpend.length === 0 ? (
               <EmptyState message="No allocations this quarter" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={MOCK_WEEKLY_SPEND} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                <AreaChart data={weeklySpend} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={tokens.colorNeutralStroke3} />
                   <XAxis dataKey="week" fontSize={12} />
                   <YAxis fontSize={12} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />

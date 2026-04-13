@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
   "metadata": {
     "name": "SwagAgent - Finalize Allocation",
-    "description": "Called when seller confirms. Performs budget re-check, inventory re-check, then writes allocation records, reserves inventory, and updates budget in a changeset. Includes compensation on partial failure.",
+    "description": "Called when seller confirms. Re-checks budget + inventory, creates event + allocations, reserves inventory, updates budget. Each line item write attempts compensation on failure. Phantom reservations from double-failures are caught by the weekly orphan-detection scheduled flow (TODO #6).",
     "trigger": "Called from Copilot Studio at finalization"
   },
   "definition": {
@@ -25,7 +25,8 @@
                   "tier4Count": { "type": "integer" },
                   "inPerson": { "type": "boolean" },
                   "sellerName": { "type": "string" },
-                  "sellerUserId": { "type": "string" }
+                  "sellerUserId": { "type": "string" },
+                  "tpid": { "type": "string" }
                 }
               },
               "lineItems": {
@@ -49,6 +50,33 @@
       }
     },
     "actions": {
+      "Initialize_CreatedAllocationIds": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "CreatedAllocationIds", "type": "array", "value": [] }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Initialize_ReservedItemDeltas": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "ReservedItemDeltas", "type": "array", "value": [] }
+          ]
+        },
+        "runAfter": { "Initialize_CreatedAllocationIds": ["Succeeded"] }
+      },
+      "Initialize_CreatedEventId": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "CreatedEventId", "type": "string", "value": "" }
+          ]
+        },
+        "runAfter": { "Initialize_ReservedItemDeltas": ["Succeeded"] }
+      },
       "Step1_Recheck_Budget": {
         "type": "OpenApiConnection",
         "inputs": {
@@ -61,7 +89,7 @@
             "$select": "swag_budgettrackerid,swag_remainingavailable,swag_totalreserved"
           }
         },
-        "runAfter": {}
+        "runAfter": { "Initialize_CreatedEventId": ["Succeeded"] }
       },
       "Check_Budget_Sufficient": {
         "type": "If",
@@ -76,11 +104,48 @@
           ]
         },
         "actions": {
-          "Step2_Recheck_Inventory": {
-            "type": "Scope",
+          "Step2_Recheck_Inventory_Apply_To_Each": {
+            "type": "Foreach",
+            "foreach": "@triggerBody()?['lineItems']",
             "actions": {
-              "_comment": "For each line item, verify swag_quantityavailable >= requested quantity. If any item fails, return inventory_conflict. Implementation: use Apply to Each with a condition check per item."
-            }
+              "Get_Current_Item_Stock": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "GetItem",
+                  "parameters": {
+                    "entityName": "swag_swagitems",
+                    "recordId": "@items('Step2_Recheck_Inventory_Apply_To_Each')?['itemId']",
+                    "$select": "swag_swagitemid,swag_quantityavailable,swag_name"
+                  }
+                },
+                "runAfter": {}
+              },
+              "If_Insufficient_Inventory": {
+                "type": "If",
+                "expression": {
+                  "less": [
+                    "@body('Get_Current_Item_Stock')?['swag_quantityavailable']",
+                    "@items('Step2_Recheck_Inventory_Apply_To_Each')?['quantity']"
+                  ]
+                },
+                "actions": {
+                  "Terminate_With_Inventory_Conflict": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Failed",
+                      "runError": {
+                        "code": "INVENTORY_CONFLICT",
+                        "message": "@concat('Item ', body('Get_Current_Item_Stock')?['swag_name'], ' has only ', string(body('Get_Current_Item_Stock')?['swag_quantityavailable']), ' available, requested ', string(items('Step2_Recheck_Inventory_Apply_To_Each')?['quantity']))"
+                      }
+                    }
+                  }
+                },
+                "else": { "actions": {} },
+                "runAfter": { "Get_Current_Item_Stock": ["Succeeded"] }
+              }
+            },
+            "runAfter": {}
           },
           "Step3_Create_Event": {
             "type": "OpenApiConnection",
@@ -99,23 +164,94 @@
                   "swag_inperson": "@triggerBody()?['eventDetails']?['inPerson']",
                   "swag_sellername": "@triggerBody()?['eventDetails']?['sellerName']",
                   "swag_selleruserid": "@triggerBody()?['eventDetails']?['sellerUserId']",
+                  "swag_tpid": "@triggerBody()?['eventDetails']?['tpid']",
                   "swag_status": "confirmed",
                   "swag_totalcost": "@triggerBody()?['totalCost']"
                 }
               }
             },
-            "runAfter": {
-              "Step2_Recheck_Inventory": ["Succeeded"]
-            }
+            "runAfter": { "Step2_Recheck_Inventory_Apply_To_Each": ["Succeeded"] }
+          },
+          "Save_CreatedEventId": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "CreatedEventId",
+              "value": "@body('Step3_Create_Event')?['swag_eventsid']"
+            },
+            "runAfter": { "Step3_Create_Event": ["Succeeded"] }
           },
           "Step4_Create_Allocations_And_Reserve": {
-            "type": "Scope",
+            "type": "Foreach",
+            "foreach": "@triggerBody()?['lineItems']",
             "actions": {
-              "_comment": "For each line item: (1) Create allocation record with @odata.bind to event, (2) Update SwagItem: increment quantityReserved by quantity. Use Dataverse changeset/batch for atomicity. If any write fails, run compensation scope to reverse prior writes."
+              "Create_Allocation_Record": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "CreateRecord",
+                  "parameters": {
+                    "entityName": "swag_allocations",
+                    "item": {
+                      "swag_eventid@odata.bind": "@concat('/swag_events(', variables('CreatedEventId'), ')')",
+                      "swag_itemid@odata.bind": "@concat('/swag_swagitems(', items('Step4_Create_Allocations_And_Reserve')?['itemId'], ')')",
+                      "swag_itemname": "@items('Step4_Create_Allocations_And_Reserve')?['itemName']",
+                      "swag_quantity": "@items('Step4_Create_Allocations_And_Reserve')?['quantity']",
+                      "swag_totalcost": "@items('Step4_Create_Allocations_And_Reserve')?['lineTotal']",
+                      "swag_status": "confirmed"
+                    }
+                  }
+                },
+                "runAfter": {}
+              },
+              "Track_Created_Allocation": {
+                "type": "AppendToArrayVariable",
+                "inputs": {
+                  "name": "CreatedAllocationIds",
+                  "value": "@body('Create_Allocation_Record')?['swag_allocationsid']"
+                },
+                "runAfter": { "Create_Allocation_Record": ["Succeeded"] }
+              },
+              "Get_Item_For_Reserve": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "GetItem",
+                  "parameters": {
+                    "entityName": "swag_swagitems",
+                    "recordId": "@items('Step4_Create_Allocations_And_Reserve')?['itemId']",
+                    "$select": "swag_swagitemid,swag_quantityreserved"
+                  }
+                },
+                "runAfter": { "Track_Created_Allocation": ["Succeeded"] }
+              },
+              "Increment_Item_Reserved": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "UpdateRecord",
+                  "parameters": {
+                    "entityName": "swag_swagitems",
+                    "recordId": "@items('Step4_Create_Allocations_And_Reserve')?['itemId']",
+                    "item": {
+                      "swag_quantityreserved": "@add(body('Get_Item_For_Reserve')?['swag_quantityreserved'], items('Step4_Create_Allocations_And_Reserve')?['quantity'])"
+                    }
+                  }
+                },
+                "runAfter": { "Get_Item_For_Reserve": ["Succeeded"] }
+              },
+              "Track_Reserved_Delta": {
+                "type": "AppendToArrayVariable",
+                "inputs": {
+                  "name": "ReservedItemDeltas",
+                  "value": {
+                    "itemId": "@items('Step4_Create_Allocations_And_Reserve')?['itemId']",
+                    "delta": "@items('Step4_Create_Allocations_And_Reserve')?['quantity']"
+                  }
+                },
+                "runAfter": { "Increment_Item_Reserved": ["Succeeded"] }
+              }
             },
-            "runAfter": {
-              "Step3_Create_Event": ["Succeeded"]
-            }
+            "runAfter": { "Save_CreatedEventId": ["Succeeded"] }
           },
           "Step5_Update_Budget": {
             "type": "OpenApiConnection",
@@ -130,9 +266,7 @@
                 }
               }
             },
-            "runAfter": {
-              "Step4_Create_Allocations_And_Reserve": ["Succeeded"]
-            }
+            "runAfter": { "Step4_Create_Allocations_And_Reserve": ["Succeeded"] }
           },
           "Return_Success": {
             "type": "Response",
@@ -140,14 +274,13 @@
               "statusCode": 200,
               "body": {
                 "status": "confirmed",
-                "eventId": "@body('Step3_Create_Event')?['swag_eventid']",
+                "eventId": "@variables('CreatedEventId')",
+                "allocationIds": "@variables('CreatedAllocationIds')",
                 "totalCost": "@triggerBody()?['totalCost']",
                 "message": "Allocation confirmed successfully"
               }
             },
-            "runAfter": {
-              "Step5_Update_Budget": ["Succeeded"]
-            }
+            "runAfter": { "Step5_Update_Budget": ["Succeeded"] }
           }
         },
         "else": {
@@ -166,18 +299,102 @@
             }
           }
         },
-        "runAfter": {
-          "Step1_Recheck_Budget": ["Succeeded"]
-        }
+        "runAfter": { "Step1_Recheck_Budget": ["Succeeded"] }
       },
       "Compensation_Scope": {
         "type": "Scope",
         "actions": {
-          "_comment": "If Step4 or Step5 fails: (1) Delete created allocation records, (2) Decrement quantityReserved on affected SwagItems, (3) Delete created event record. Log the compensation failure if this scope also fails - the orphan detection scheduled flow will catch it."
+          "Compensate_Reserved_Items": {
+            "type": "Foreach",
+            "foreach": "@variables('ReservedItemDeltas')",
+            "actions": {
+              "Get_Item_For_Compensation": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "GetItem",
+                  "parameters": {
+                    "entityName": "swag_swagitems",
+                    "recordId": "@items('Compensate_Reserved_Items')?['itemId']",
+                    "$select": "swag_quantityreserved"
+                  }
+                },
+                "runAfter": {}
+              },
+              "Decrement_Item_Reserved": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "UpdateRecord",
+                  "parameters": {
+                    "entityName": "swag_swagitems",
+                    "recordId": "@items('Compensate_Reserved_Items')?['itemId']",
+                    "item": {
+                      "swag_quantityreserved": "@max(0, sub(body('Get_Item_For_Compensation')?['swag_quantityreserved'], items('Compensate_Reserved_Items')?['delta']))"
+                    }
+                  }
+                },
+                "runAfter": { "Get_Item_For_Compensation": ["Succeeded"] }
+              }
+            },
+            "runAfter": {}
+          },
+          "Compensate_Created_Allocations": {
+            "type": "Foreach",
+            "foreach": "@variables('CreatedAllocationIds')",
+            "actions": {
+              "Delete_Allocation": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "DeleteRecord",
+                  "parameters": {
+                    "entityName": "swag_allocations",
+                    "recordId": "@items('Compensate_Created_Allocations')"
+                  }
+                },
+                "runAfter": {}
+              }
+            },
+            "runAfter": { "Compensate_Reserved_Items": ["Succeeded", "Failed"] }
+          },
+          "Compensate_Created_Event": {
+            "type": "If",
+            "expression": {
+              "and": [
+                { "not": { "equals": ["@variables('CreatedEventId')", ""] } }
+              ]
+            },
+            "actions": {
+              "Delete_Event": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": { "connectionName": "shared_commondataserviceforapps" },
+                  "operationId": "DeleteRecord",
+                  "parameters": {
+                    "entityName": "swag_events",
+                    "recordId": "@variables('CreatedEventId')"
+                  }
+                }
+              }
+            },
+            "else": { "actions": {} },
+            "runAfter": { "Compensate_Created_Allocations": ["Succeeded", "Failed"] }
+          },
+          "Return_Failure": {
+            "type": "Response",
+            "inputs": {
+              "statusCode": 200,
+              "body": {
+                "status": "finalization_failed",
+                "message": "Finalization failed and was rolled back. Please retry. If the failure persists, contact Adrea's team.",
+                "compensationCompleted": true
+              }
+            },
+            "runAfter": { "Compensate_Created_Event": ["Succeeded", "Failed"] }
+          }
         },
-        "runAfter": {
-          "Check_Budget_Sufficient": ["Failed"]
-        }
+        "runAfter": { "Check_Budget_Sufficient": ["Failed"] }
       }
     }
   }
