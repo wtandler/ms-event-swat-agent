@@ -1,0 +1,73 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Finalize Allocation
+    description: |-
+      Triggers when the seller confirms their swag allocation and wants to lock it in. Use when the seller says "yes, confirm", "that works", "let's go with that", "finalize it", "submit", "approve", or clearly agrees to the proposed package.
+    triggerQueries:
+      - confirm
+      - finalize
+      - submit
+      - approve
+      - lock it in
+      - that works
+      - yes let's do it
+      - go ahead
+
+  actions:
+    - kind: SendActivity
+      id: sayWorking
+      activity: Confirming your allocation, one moment...
+
+    - kind: BeginDialog
+      id: callFinalize
+      dialog: swag_swagAgent.action.FinalizeAllocation
+      output:
+        status: Topic.FinalizeStatus
+        eventId: Topic.ConfirmedEventId
+        totalCost: Topic.ConfirmedCost
+        message: Topic.FinalizeMessage
+
+    - kind: ConditionGroup
+      id: handleResponse
+      conditions:
+        - id: confirmed
+          condition: =Topic.FinalizeStatus = "confirmed"
+          actions:
+            - kind: SendActivity
+              id: saySuccess
+              activity: |-
+                Your allocation is confirmed.
+
+                **Event ID:** {Topic.ConfirmedEventId}
+                **Total cost:** ${Topic.ConfirmedCost}
+
+                Chris on our team will place the order with the manufacturer and send tracking information to you.
+
+        - id: budgetConflict
+          condition: =Topic.FinalizeStatus = "budget_conflict"
+          actions:
+            - kind: SendActivity
+              id: sayBudgetConflict
+              activity: |-
+                {Topic.FinalizeMessage}
+
+                Let's adjust the allocation to fit the current budget. How would you like to cut costs - fewer items, lower-tier items, or smaller quantities?
+
+        - id: inventoryConflict
+          condition: =Topic.FinalizeStatus = "inventory_conflict"
+          actions:
+            - kind: SendActivity
+              id: sayInventoryConflict
+              activity: |-
+                Inventory has changed since we started. Some items aren't available in the quantities you requested. Let me re-propose based on what's available now.
+
+      elseActions:
+        - kind: SendActivity
+          id: sayGenericFailure
+          activity: |-
+            Something went wrong while finalizing. Please retry, or contact Adrea's team if the issue persists.
+
+            Details: {Topic.FinalizeMessage}

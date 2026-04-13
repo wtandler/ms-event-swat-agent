@@ -1,0 +1,18 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnConversationStart
+  id: main
+  actions:
+    - kind: SendActivity
+      id: sendGreeting
+      activity:
+        text:
+          - |-
+            Hi, I'm the Excite Days Swag Agent. I help you get the right swag for your customer events.
+
+            Tell me about your upcoming event and I'll propose a swag package within your program's budget. I need:
+
+            - Event date
+            - Total attendees
+            - Breakdown by tier (execs, champs, tier 3, tier 4)
+            - In-person or virtual

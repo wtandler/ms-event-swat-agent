@@ -1,0 +1,22 @@
+kind: WorkflowDialog
+modelDisplayName: Load Swag Agent Context
+modelDescription: |-
+  Loads the session context for the swag allocation conversation: active budget period, full swag inventory, configured tier allocation rules, and recent allocations. Called once at conversation start. The returned context is what the GPT instructions reference when proposing allocations and during negotiation.
+
+inputs: []
+
+outputs:
+  - propertyName: budget
+    description: Active budget period (programTotal, totalSpent, totalReserved, remainingAvailable, quarterStart, quarterEnd)
+  - propertyName: inventory
+    description: Array of swag items with quantities and costs
+  - propertyName: rules
+    description: Array of tier allocation rules (JSON-encoded per-tier pack definitions)
+  - propertyName: recentEvents
+    description: Last 10 non-cancelled events for historical pattern context
+  - propertyName: loadedAt
+    description: Timestamp when context was loaded
+
+action:
+  kind: InvokeFlowAction
+  workflowId: d2d8f0ba-4f37-f111-88b5-000d3a3760f1
