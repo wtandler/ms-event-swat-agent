@@ -1,0 +1,33 @@
+{
+  "logicalName": "swag_events",
+  "displayName": "Events",
+  "description": "Event registry - seller event requests and their status",
+  "primaryNameAttribute": "swag_sellername",
+  "ownershipType": "Organization",
+  "columns": [
+    { "logicalName": "swag_eventdate", "displayName": "Event Date", "type": "DateOnly", "required": true },
+    { "logicalName": "swag_attendeecount", "displayName": "Attendee Count", "type": "Integer", "required": true },
+    { "logicalName": "swag_execcount", "displayName": "Exec Count", "type": "Integer", "required": true },
+    { "logicalName": "swag_champcount", "displayName": "Champ Count", "type": "Integer", "required": true },
+    { "logicalName": "swag_tier3count", "displayName": "Tier 3 Count", "type": "Integer", "required": true },
+    { "logicalName": "swag_tier4count", "displayName": "Tier 4 Count", "type": "Integer", "required": true },
+    { "logicalName": "swag_inperson", "displayName": "In-Person", "type": "Boolean", "required": true },
+    { "logicalName": "swag_sellername", "displayName": "Seller Name", "type": "String", "maxLength": 200, "required": true },
+    { "logicalName": "swag_selleruserid", "displayName": "Seller User ID", "type": "String", "maxLength": 200, "description": "Copilot Studio User.ID (identity provider subject claim)" },
+    { "logicalName": "swag_tpid", "displayName": "TPID", "type": "String", "maxLength": 50, "description": "Top Parent ID - customer account identifier" },
+    { "logicalName": "swag_status", "displayName": "Status", "type": "Choice", "options": ["draft", "confirmed", "amended", "ordered", "cancelled"], "required": true, "default": "draft" },
+    { "logicalName": "swag_totalcost", "displayName": "Total Cost", "type": "Currency", "precision": 2 }
+  ],
+  "stateMachine": {
+    "description": "draft -> confirmed -> ordered (terminal for sellers). confirmed -> amended -> confirmed. Any -> cancelled (terminal).",
+    "transitions": {
+      "draft": ["confirmed", "cancelled"],
+      "confirmed": ["amended", "ordered", "cancelled"],
+      "amended": ["confirmed", "cancelled"],
+      "ordered": [],
+      "cancelled": []
+    },
+    "sellerEditable": ["confirmed"],
+    "adminOnly": ["ordered"]
+  }
+}

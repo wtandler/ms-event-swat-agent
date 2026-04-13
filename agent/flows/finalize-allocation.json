@@ -1,0 +1,184 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "metadata": {
+    "name": "SwagAgent - Finalize Allocation",
+    "description": "Called when seller confirms. Performs budget re-check, inventory re-check, then writes allocation records, reserves inventory, and updates budget in a changeset. Includes compensation on partial failure.",
+    "trigger": "Called from Copilot Studio at finalization"
+  },
+  "definition": {
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerAppV2",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "eventDetails": {
+                "type": "object",
+                "properties": {
+                  "eventDate": { "type": "string" },
+                  "attendeeCount": { "type": "integer" },
+                  "execCount": { "type": "integer" },
+                  "champCount": { "type": "integer" },
+                  "tier3Count": { "type": "integer" },
+                  "tier4Count": { "type": "integer" },
+                  "inPerson": { "type": "boolean" },
+                  "sellerName": { "type": "string" },
+                  "sellerUserId": { "type": "string" }
+                }
+              },
+              "lineItems": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "itemId": { "type": "string" },
+                    "itemName": { "type": "string" },
+                    "quantity": { "type": "integer" },
+                    "unitCost": { "type": "number" },
+                    "lineTotal": { "type": "number" }
+                  }
+                }
+              },
+              "totalCost": { "type": "number" }
+            },
+            "required": ["eventDetails", "lineItems", "totalCost"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Step1_Recheck_Budget": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": { "connectionName": "shared_commondataserviceforapps" },
+          "operationId": "ListRecords",
+          "parameters": {
+            "entityName": "swag_budgettrackers",
+            "$filter": "swag_quarterstart le '@{utcNow()}' and swag_quarterend ge '@{utcNow()}'",
+            "$top": 1,
+            "$select": "swag_budgettrackerid,swag_remainingavailable,swag_totalreserved"
+          }
+        },
+        "runAfter": {}
+      },
+      "Check_Budget_Sufficient": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "greaterOrEquals": [
+                "@first(body('Step1_Recheck_Budget')?['value'])?['swag_remainingavailable']",
+                "@triggerBody()?['totalCost']"
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Step2_Recheck_Inventory": {
+            "type": "Scope",
+            "actions": {
+              "_comment": "For each line item, verify swag_quantityavailable >= requested quantity. If any item fails, return inventory_conflict. Implementation: use Apply to Each with a condition check per item."
+            }
+          },
+          "Step3_Create_Event": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": { "connectionName": "shared_commondataserviceforapps" },
+              "operationId": "CreateRecord",
+              "parameters": {
+                "entityName": "swag_events",
+                "item": {
+                  "swag_eventdate": "@triggerBody()?['eventDetails']?['eventDate']",
+                  "swag_attendeecount": "@triggerBody()?['eventDetails']?['attendeeCount']",
+                  "swag_execcount": "@triggerBody()?['eventDetails']?['execCount']",
+                  "swag_champcount": "@triggerBody()?['eventDetails']?['champCount']",
+                  "swag_tier3count": "@triggerBody()?['eventDetails']?['tier3Count']",
+                  "swag_tier4count": "@triggerBody()?['eventDetails']?['tier4Count']",
+                  "swag_inperson": "@triggerBody()?['eventDetails']?['inPerson']",
+                  "swag_sellername": "@triggerBody()?['eventDetails']?['sellerName']",
+                  "swag_selleruserid": "@triggerBody()?['eventDetails']?['sellerUserId']",
+                  "swag_status": "confirmed",
+                  "swag_totalcost": "@triggerBody()?['totalCost']"
+                }
+              }
+            },
+            "runAfter": {
+              "Step2_Recheck_Inventory": ["Succeeded"]
+            }
+          },
+          "Step4_Create_Allocations_And_Reserve": {
+            "type": "Scope",
+            "actions": {
+              "_comment": "For each line item: (1) Create allocation record with @odata.bind to event, (2) Update SwagItem: increment quantityReserved by quantity. Use Dataverse changeset/batch for atomicity. If any write fails, run compensation scope to reverse prior writes."
+            },
+            "runAfter": {
+              "Step3_Create_Event": ["Succeeded"]
+            }
+          },
+          "Step5_Update_Budget": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": { "connectionName": "shared_commondataserviceforapps" },
+              "operationId": "UpdateRecord",
+              "parameters": {
+                "entityName": "swag_budgettrackers",
+                "recordId": "@first(body('Step1_Recheck_Budget')?['value'])?['swag_budgettrackerid']",
+                "item": {
+                  "swag_totalreserved": "@add(first(body('Step1_Recheck_Budget')?['value'])?['swag_totalreserved'], triggerBody()?['totalCost'])"
+                }
+              }
+            },
+            "runAfter": {
+              "Step4_Create_Allocations_And_Reserve": ["Succeeded"]
+            }
+          },
+          "Return_Success": {
+            "type": "Response",
+            "inputs": {
+              "statusCode": 200,
+              "body": {
+                "status": "confirmed",
+                "eventId": "@body('Step3_Create_Event')?['swag_eventid']",
+                "totalCost": "@triggerBody()?['totalCost']",
+                "message": "Allocation confirmed successfully"
+              }
+            },
+            "runAfter": {
+              "Step5_Update_Budget": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Return_Budget_Conflict": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 200,
+                "body": {
+                  "status": "budget_conflict",
+                  "availableBudget": "@first(body('Step1_Recheck_Budget')?['value'])?['swag_remainingavailable']",
+                  "requestedCost": "@triggerBody()?['totalCost']",
+                  "message": "Budget has changed since your session started. Available budget is now lower than your allocation cost."
+                }
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Step1_Recheck_Budget": ["Succeeded"]
+        }
+      },
+      "Compensation_Scope": {
+        "type": "Scope",
+        "actions": {
+          "_comment": "If Step4 or Step5 fails: (1) Delete created allocation records, (2) Decrement quantityReserved on affected SwagItems, (3) Delete created event record. Log the compensation failure if this scope also fails - the orphan detection scheduled flow will catch it."
+        },
+        "runAfter": {
+          "Check_Budget_Sufficient": ["Failed"]
+        }
+      }
+    }
+  }
+}

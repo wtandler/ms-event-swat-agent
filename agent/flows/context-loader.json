@@ -1,0 +1,105 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "metadata": {
+    "name": "SwagAgent - Context Loader",
+    "description": "Triggered at conversation start. Loads current budget state, inventory levels, allocation rules, and recent allocations into a single JSON payload for the agent's topic variable. Target: <28 KB total payload.",
+    "trigger": "Called from Copilot Studio topic at conversation start"
+  },
+  "definition": {
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerAppV2",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      }
+    },
+    "actions": {
+      "Get_Active_Budget": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": { "connectionName": "shared_commondataserviceforapps" },
+          "operationId": "ListRecords",
+          "parameters": {
+            "entityName": "swag_budgettrackers",
+            "$filter": "swag_quarterstart le '@{utcNow()}' and swag_quarterend ge '@{utcNow()}'",
+            "$top": 1,
+            "$select": "swag_programname,swag_programtotal,swag_totalspent,swag_totalreserved,swag_remainingavailable,swag_quarterstart,swag_quarterend"
+          }
+        },
+        "runAfter": {}
+      },
+      "Get_Inventory": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": { "connectionName": "shared_commondataserviceforapps" },
+          "operationId": "ListRecords",
+          "parameters": {
+            "entityName": "swag_swagitems",
+            "$select": "swag_swagitemid,swag_name,swag_sizecategory,swag_unitcost,swag_quantitytotal,swag_quantityreserved,swag_quantityavailable,swag_tiereligibility",
+            "$orderby": "swag_name asc"
+          }
+        },
+        "runAfter": {}
+      },
+      "Get_Allocation_Rules": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": { "connectionName": "shared_commondataserviceforapps" },
+          "operationId": "ListRecords",
+          "parameters": {
+            "entityName": "swag_allocationrules",
+            "$select": "swag_tiername,swag_eventtype,swag_rulesjson"
+          }
+        },
+        "runAfter": {}
+      },
+      "Get_Recent_Allocations": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": { "connectionName": "shared_commondataserviceforapps" },
+          "operationId": "ListRecords",
+          "parameters": {
+            "entityName": "swag_events",
+            "$filter": "swag_status ne 'cancelled'",
+            "$top": 10,
+            "$orderby": "swag_eventdate desc",
+            "$select": "swag_eventid,swag_eventdate,swag_sellername,swag_attendeecount,swag_totalcost,swag_status,swag_inperson"
+          }
+        },
+        "runAfter": {}
+      },
+      "Compose_Context_Payload": {
+        "type": "Compose",
+        "inputs": {
+          "budget": "@first(body('Get_Active_Budget')?['value'])",
+          "inventory": "@body('Get_Inventory')?['value']",
+          "rules": "@body('Get_Allocation_Rules')?['value']",
+          "recentEvents": "@body('Get_Recent_Allocations')?['value']",
+          "loadedAt": "@utcNow()"
+        },
+        "runAfter": {
+          "Get_Active_Budget": ["Succeeded"],
+          "Get_Inventory": ["Succeeded"],
+          "Get_Allocation_Rules": ["Succeeded"],
+          "Get_Recent_Allocations": ["Succeeded"]
+        }
+      },
+      "Return_Context": {
+        "type": "Response",
+        "inputs": {
+          "statusCode": 200,
+          "body": "@outputs('Compose_Context_Payload')"
+        },
+        "runAfter": {
+          "Compose_Context_Payload": ["Succeeded"]
+        }
+      }
+    }
+  }
+}

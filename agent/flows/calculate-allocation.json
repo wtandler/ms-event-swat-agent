@@ -1,0 +1,84 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "metadata": {
+    "name": "SwagAgent - Calculate Allocation",
+    "description": "Pure calculation flow. Accepts item quantities, unit costs, and current budget. Returns total cost and remaining budget. No Dataverse queries - just math. Called during negotiation to avoid LLM arithmetic errors.",
+    "trigger": "Called from Copilot Studio during negotiation"
+  },
+  "definition": {
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerAppV2",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "lineItems": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "itemName": { "type": "string" },
+                    "quantity": { "type": "integer" },
+                    "unitCost": { "type": "number" }
+                  }
+                },
+                "description": "Array of {itemName, quantity, unitCost} for each line item"
+              },
+              "currentBudgetAvailable": {
+                "type": "number",
+                "description": "Current remaining quarterly budget"
+              }
+            },
+            "required": ["lineItems", "currentBudgetAvailable"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Calculate_Line_Totals": {
+        "type": "Select",
+        "inputs": {
+          "from": "@triggerBody()?['lineItems']",
+          "select": {
+            "itemName": "@item()?['itemName']",
+            "quantity": "@item()?['quantity']",
+            "unitCost": "@item()?['unitCost']",
+            "lineTotal": "@mul(item()?['quantity'], item()?['unitCost'])"
+          }
+        },
+        "runAfter": {}
+      },
+      "Sum_Total_Cost": {
+        "type": "Compose",
+        "inputs": "@sum(body('Calculate_Line_Totals')?[*]?['lineTotal'])",
+        "runAfter": {
+          "Calculate_Line_Totals": ["Succeeded"]
+        }
+      },
+      "Calculate_Remaining": {
+        "type": "Compose",
+        "inputs": "@sub(triggerBody()?['currentBudgetAvailable'], outputs('Sum_Total_Cost'))",
+        "runAfter": {
+          "Sum_Total_Cost": ["Succeeded"]
+        }
+      },
+      "Return_Result": {
+        "type": "Response",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "lineItems": "@body('Calculate_Line_Totals')",
+            "totalCost": "@outputs('Sum_Total_Cost')",
+            "budgetRemaining": "@outputs('Calculate_Remaining')",
+            "overBudget": "@less(outputs('Calculate_Remaining'), 0)"
+          }
+        },
+        "runAfter": {
+          "Calculate_Remaining": ["Succeeded"]
+        }
+      }
+    }
+  }
+}
