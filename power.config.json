@@ -1,0 +1,45 @@
+{
+  "appId": "de327c56-31ad-4e05-89d0-3cda10eca4f8",
+  "appDisplayName": "Excite Days Swag Admin",
+  "description": "Admin app for the Excite Days swag allocation program",
+  "environmentId": "f8b7bdab-0227-45ec-9a40-e3799b0b4d65",
+  "buildPath": "dist",
+  "buildEntryPoint": "index.html",
+  "logoPath": "Default",
+  "localAppUrl": "http://localhost:5173",
+  "region": "prod",
+  "connectionReferences": {},
+  "databaseReferences": {
+    "default.cds": {
+      "databaseDetails": null,
+      "dataSources": {
+        "budgettrackers": {
+          "entitySetName": "swag_budgettrackers",
+          "logicalName": "swag_budgettracker",
+          "isHidden": false
+        },
+        "swagitems": {
+          "entitySetName": "swag_swagitems",
+          "logicalName": "swag_swagitem",
+          "isHidden": false
+        },
+        "events": {
+          "entitySetName": "swag_events",
+          "logicalName": "swag_event",
+          "isHidden": false
+        },
+        "allocations": {
+          "entitySetName": "swag_allocations",
+          "logicalName": "swag_allocation",
+          "isHidden": false
+        },
+        "allocationrules": {
+          "entitySetName": "swag_allocationrules",
+          "logicalName": "swag_allocationrule",
+          "isHidden": false
+        }
+      },
+      "actions": null
+    }
+  }
+}

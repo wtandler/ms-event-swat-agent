@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0.0] - 2026-04-13
+
+### Added
+- Full deployment to the CSS CMO Power Platform environment:
+  - Dataverse Solution `ExciteDaysSwag` with publisher prefix `swag_`
+  - 5 Dataverse tables with all columns, calculated client-side: `swag_budgettracker`, `swag_swagitem`, `swag_event`, `swag_allocation`, `swag_allocationrule`
+  - FK relationships: `swag_event -> swag_allocation` (Parental), `swag_swagitem -> swag_allocation` (Referential)
+  - Both Power Automate flows imported as Draft workflows
+  - Copilot Studio agent shell with GPT instructions persisted to `botcomponent.data` column, linked via `bot.configuration.gPTSettings.defaultSchemaName`
+  - Code App deployed via `pac code push`; live at https://apps.powerapps.com/play/e/f8b7bdab-0227-45ec-9a40-e3799b0b4d65/app/de327c56-31ad-4e05-89d0-3cda10eca4f8
+- Hooks in `src/hooks/useDataverse.ts` now call real Dataverse via generated SDK services in `src/generated/`
+- Mappers translate SDK shapes (all-string types, numeric option set values) to app types
+- Provisioning scripts in `scripts/` for reproducibility:
+  - `provision-tables.py`: creates all 5 tables + columns
+  - `provision-relationships.py`: creates FK relationships
+  - `import-flows.py`: creates workflow records for both flows
+  - `create-agent.py`: creates bot shell + GPT component + links configuration
+- `agent/DEPLOY-STATE.md`: deployment artifacts, IDs, and remaining manual portal steps
+
+### Changed
+- `src/hooks/useDataverse.ts`: replaced in-memory mock arrays with calls to `Swag_*Service` classes. Signatures unchanged; pages untouched.
+
 ## [0.2.0.0] - 2026-04-13
 
 ### Added
