@@ -9,7 +9,7 @@ Two systems sharing a Dataverse backend:
 
 ## Stack
 
-- **Agent:** Copilot Studio + Power Automate flows + Dataverse (5 tables)
+- **Agent:** Copilot Studio (with Power Fx for negotiation math) + 2 Power Automate flows (context-loader, finalizer) + Dataverse (5 tables)
 - **Admin app:** Vite, React 18, TypeScript (strict), Fluent UI v9, recharts, react-router HashRouter
 - **Deployment:** `pac solution import` (agent) + `npm run build && pac code push` (Code App)
 

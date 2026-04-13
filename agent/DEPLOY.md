@@ -24,28 +24,36 @@ Key setup:
 
 ## Step 2: Import Power Automate Flows
 
-Import the three flow definitions from `agent/flows/`:
+Import the two flow definitions from `agent/flows/`:
 
 1. **Context Loader** (`context-loader.json`): Triggered at conversation start. Loads budget + inventory + rules + recent events.
-2. **Calculate Allocation** (`calculate-allocation.json`): Pure math flow. Item quantities in, costs out.
-3. **Finalize Allocation** (`finalize-allocation.json`): Changeset flow. Budget re-check, inventory re-check, create event + allocations, reserve inventory, update budget.
+2. **Finalize Allocation** (`finalize-allocation.json`): Changeset flow. Budget re-check, inventory re-check, create event + allocations, reserve inventory, update budget.
 
-Each flow needs a Dataverse connection. Use the service account connection for all three.
+Negotiation math runs as **Power Fx in the negotiation topic** (no flow). See Step 3.
+
+Each flow needs a Dataverse connection. Use the service account connection for both.
 
 ## Step 3: Create Copilot Studio Agent
 
 1. Go to copilotstudio.microsoft.com
 2. Create a new agent in the target environment
 3. Paste the GPT instructions from `agent/botcomponents/swagAgent.gpt.default/data`
-4. Connect the three Power Automate flows as actions:
+4. Connect the two Power Automate flows as actions:
    - `LoadContext` -> context-loader flow (called at conversation start topic)
-   - `CalculateAllocation` -> calculate-allocation flow
    - `FinalizeAllocation` -> finalize-allocation flow
 5. Create a conversation start topic that:
    - Calls LoadContext flow
    - Stores the result in a `SessionContext` topic variable
    - Passes SessionContext to the GPT instructions
-6. Publish the agent to the target channel (Teams and/or SharePoint)
+6. Create a negotiation topic that uses Power Fx for cost calculations:
+   - Set `lineItem.lineTotal = lineItem.quantity * lineItem.unitCost` (per item via ForAll)
+   - Set `totalCost = Sum(lineItems, lineTotal)`
+   - Set `budgetRemaining = SessionContext.budget.remainingAvailable - totalCost`
+   - Set `overBudget = budgetRemaining < 0`
+   - All math runs deterministically in-topic, no flow call per negotiation turn
+7. Publish the agent to the target channel (Teams and/or SharePoint)
+
+**Why no Calculator flow:** Power Fx in topics handles arithmetic deterministically (Sum, *, -, +). Eliminating the calculator flow saves ~1-2 seconds per negotiation turn. Math correctness is preserved because Power Fx isn't an LLM.
 
 ## Step 4: Deploy Admin Code App
 
@@ -76,14 +84,16 @@ Use the evaluation suite (120+ historical orders, split 80/40 train/eval):
 ```
 SELLER --> COPILOT STUDIO AGENT --> POWER AUTOMATE FLOWS --> DATAVERSE <-- ADMIN CODE APP
                 |                         |                                      |
-                | (conversation)          | (read/write)                         | (read/write)
+                | (conversation +         | (read/write)                         | (read/write)
+                |  Power Fx math)         |                                      |
                 |                         |                                      |
-                +- Intake                 +- Context Loader                      +- Rules Editor
-                +- Propose                +- Calculator                          +- Budget Dashboard
-                +- Negotiate              +- Finalizer (changeset)              +- Inventory
-                +- Finalize               |                                      +- Orders
-                                          +- Budget re-check at finalization
+                +- Intake                 +- Context Loader (1 call)            +- Rules Editor
+                +- Propose                +- Finalizer (changeset, 1 call)      +- Budget Dashboard
+                +- Negotiate (Power Fx)   |                                      +- Inventory
+                +- Finalize               +- Budget re-check at finalization     +- Orders
 ```
+
+**Two flows, not three.** Negotiation math runs as Power Fx in the topic (deterministic, no flow call per turn).
 
 ## Known Constraints
 

@@ -51,7 +51,7 @@ instructions: |-
   - Show remaining quarterly budget after this allocation
   - If this event costs more than 30% above the average for similar-sized events, flag it: "Note: this allocation is above typical spend for events of this size."
 
-  IMPORTANT: Do NOT calculate costs yourself. Call the CalculateAllocation flow with the item quantities. Use the numbers it returns. LLM arithmetic is unreliable on multi-line calculations.
+  IMPORTANT: Do NOT calculate costs yourself. The negotiation topic uses Power Fx (Sum, multiplication) on the lineItems variable to compute totals deterministically. LLM arithmetic is unreliable on multi-line calculations - the topic does the math, you only narrate the result.
 
   ### Step 3: Negotiate
   The seller may request changes:
@@ -60,7 +60,7 @@ instructions: |-
   - "This is too expensive, cut it down"
   - "Swap socks for water bottles"
 
-  For every change, call the CalculateAllocation flow again with updated quantities. Show the revised table and the cost impact: "That adds $X, bringing the total to $Y. You'd have $Z remaining in the quarterly budget."
+  For every change, the topic recalculates totals via Power Fx (e.g., totalCost = Sum(lineItems, quantity * unitCost), budgetRemaining = budget.remainingAvailable - totalCost). Show the revised table and the cost impact: "That adds $X, bringing the total to $Y. You'd have $Z remaining in the quarterly budget."
 
   Hard guardrails (never violate):
   - Cannot exceed remaining quarterly budget

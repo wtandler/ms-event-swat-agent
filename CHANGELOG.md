@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1.0] - 2026-04-13
+
+### Changed
+- Eliminated the `calculate-allocation` Power Automate flow. Negotiation math now runs as Power Fx expressions inline in the Copilot Studio negotiation topic. Saves ~1-2 seconds per negotiation turn and removes one flow from the deployment.
+- Updated agent GPT instructions, deploy guide, and architecture diagram to reflect the 3-flow → 2-flow change.
+
+### Removed
+- `agent/flows/calculate-allocation.json` — replaced by Power Fx in the negotiation topic.
+
 ## [0.1.0.0] - 2026-04-13
 
 ### Added
