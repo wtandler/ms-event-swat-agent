@@ -1,0 +1,31 @@
+kind: WorkflowDialog
+modelDisplayName: Finalize Swag Allocation
+modelDescription: |-
+  Finalizes the seller's confirmed swag allocation. Re-checks budget and inventory, creates the event + allocation records in Dataverse, reserves inventory, and updates the budget tracker. Returns a status (confirmed, budget_conflict, inventory_conflict, or finalization_failed) and the created event ID if successful. Called when the seller explicitly confirms their package.
+
+inputs:
+  - kind: AutomaticTaskInput
+    propertyName: eventDetails
+    description: Object with eventDate, attendeeCount, execCount, champCount, tier3Count, tier4Count, inPerson, sellerName, sellerUserId, tpid
+
+  - kind: AutomaticTaskInput
+    propertyName: lineItems
+    description: Array of line items (itemId, itemName, quantity, unitCost, lineTotal)
+
+  - kind: AutomaticTaskInput
+    propertyName: totalCost
+    description: Total cost of the allocation
+
+outputs:
+  - propertyName: status
+    description: One of confirmed, budget_conflict, inventory_conflict, finalization_failed
+  - propertyName: eventId
+    description: GUID of the created Event record (on success)
+  - propertyName: totalCost
+    description: Final confirmed cost
+  - propertyName: message
+    description: Human-readable message to show the seller
+
+action:
+  kind: InvokeFlowAction
+  workflowId: 3f03ecbd-4f37-f111-88b5-6045bd0a8549
